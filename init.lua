@@ -4,7 +4,7 @@ local growwallMaxHeight=10
 local growwallAutoExtend=false
 local growwallNodeMarker="wool:red"
 local growwallNodeTarget="default:sandstonebrick"
-local growwallFileName="/home/david/.minetest/mods/growwall/sun.bmp"
+local growwallFileName="/home/david/.minetest/mods/growwall/hogwarts.bmp"
 
 
 -- Don't edit these
@@ -201,12 +201,12 @@ function DrawBitmap(bytecode)
 	minetest.chat_send_all("Parse BITMAPFILEHEADER")
 
 	local offset = 1;
-	local bfType = ReadWORD(bytecode, offset);
+	local bfType = ReadWORD(bytecode, offset);		-- 2 bytes the header field used to identify the BMP & DIB file
 	if(bfType ~= 0x4D42) then
 		error("Not a bitmap file (Invalid BMP magic value)");
 		return;
 	end
-	local bfOffBits = ReadWORD(bytecode, offset+10);
+	local bfOffBits = ReadDWORD(bytecode, offset+10);	-- 4 bytes the offset, i.e. starting address, of the byte where the bitmap image data (pixel array) can be found.
 
 	-------------------------
 	-- Parse BITMAPINFOHEADER
@@ -214,10 +214,10 @@ function DrawBitmap(bytecode)
 	minetest.chat_send_all("Parse BITMAPINFOHEADER")
 
 	offset = 15; -- BITMAPFILEHEADER is 14 bytes long
-	local biWidth = ReadDWORD(bytecode, offset+4);
-	local biHeight = ReadDWORD(bytecode, offset+8);
-	local biBitCount = ReadWORD(bytecode, offset+14);
-	local biCompression = ReadDWORD(bytecode, offset+16);
+	local biWidth = ReadDWORD(bytecode, offset+4);		-- 4 bytes the bitmap width in pixels (signed integer)
+	local biHeight = ReadDWORD(bytecode, offset+8);		-- 4 bytes the bitmap height in pixels (signed integer)
+	local biBitCount = ReadWORD(bytecode, offset+14);	-- 2 bytes the number of bits per pixel, which is the color depth of the image.
+	local biCompression = ReadDWORD(bytecode, offset+16);	-- 4 bytes the compression method being used. 
 	if(biBitCount ~= 24) then
 		error("Only 24-bit bitmaps supported (Is " .. biBitCount .. "bpp)");
 		return;
@@ -230,10 +230,19 @@ function DrawBitmap(bytecode)
 	---------------------
 	-- Parse bitmap image
 	---------------------
+
 	local player = minetest.get_player_by_name("singleplayer")
 	nodeCount = 0
+
+	--The size of each row is rounded up to a multiple of 4 bytes (a 32-bit DWORD) by padding, which 
+	--  must be appended to the end of the rows
+	biRowLength = biWidth*biBitCount/8
+	biRowLengthPadded = (math.floor((biRowLength/4)-0.00000001)+1)*4
+
+	--Normally pixels are stored "upside-down" with respect to normal image raster scan order, 
+	-- starting in the lower left corner, going from left to right, and then row by row from the bottom to the top of the image
 	for y = biHeight-1, 0, -1 do
-		offset = bfOffBits + (biWidth*biBitCount/8)*y + 1;
+		offset = bfOffBits + 1 + biRowLengthPadded*y;
 		for x = 0, biWidth-1 do
 			local b = bytecode:byte(offset);
 			local g = bytecode:byte(offset+1);
@@ -242,7 +251,7 @@ function DrawBitmap(bytecode)
 
 			local wallHeight = math.floor((255 - r)/10)	-- use r channel of RGB for wall height
 			if wallHeight>0 then
-				if (nodeCount % 50) == 0 then
+				if (nodeCount % 1000) == 0 then
 					minetest.chat_send_all("placed ".. nodeCount.. " pixels")
 				end
 				nodeCount = nodeCount+1
