@@ -1,10 +1,30 @@
 local growwallActive=false
 local growwalkActive=false
-local growwallMaxHeight=10
-local growwallAutoExtend=false
-local growwallNodeMarker="wool:red"
-local growwallNodeTarget="default:sandstonebrick"
-local growwallFileName="/home/david/.minetest/mods/growwall/hogwarts.bmp"
+local wallMaxHeight=10
+local wallAutoExtend=false
+local markerNodeType="wool:red"
+local outputNodeType="default:sandstonebrick"
+
+-- Import section
+local importScale=1	-- Recommend leaving this at 1, as at the moment scaling hasn't been properly implemented- all it will do is create gaps between the blocks, and unless they are multiples of 2 the gaps will be relatively irregular
+local importOffsetX=1000
+local importOffsetY=10
+local importOffsetZ=0
+
+local bitmapFileName="/home/david/.minetest/mods/growwall/hogwarts.bmp"
+local binvoxFileName="/home/david/.minetest/mods/growwall/Hogwarts.binvox"
+
+-- binvox can be downloaded from:-
+-- http://www.cs.princeton.edu/~min/binvox/
+-- Instructions for using it are here:-
+-- http://minecraft.gamepedia.com/Programs_and_editors/Binvox
+
+-- to import binvox files (ie 3D meshes converted to voxels/nodes which can be directly imported into minetest use the following command line (for linux):-
+--cd '/home/david/.minetest/mods/binvox' 
+--./binvox -ri -bi 1 Hogwarts.obj	-- this converts a mesh to voxels, but keeps it hollow
+
+
+
 
 
 -- Don't edit these
@@ -32,7 +52,7 @@ minetest.register_on_punchnode(
 	function(pos, node, puncher)
 		if growwallActive == true then
 			voxManip = minetest.get_voxel_manip()
-			if node.name ~= growwallNodeMarker then
+			if node.name ~= markerNodeType then
 				growblock(pos)
 			else
 				checkSurround(pos)
@@ -48,12 +68,23 @@ minetest.register_chatcommand("/growbmp", {
 	description = "Load a bmp and place it in the minetest world",
 	func = function(name, param)
 
-		local f = assert(io.open(growwallFileName, "rb"));
+		local f = assert(io.open(bitmapFileName, "rb"));
 		local bmp = f:read("*a");
 		f:close();
 
 		voxManip = minetest.get_voxel_manip()
 		DrawBitmap(bmp);
+		voxManip = nil
+	end,
+})
+
+
+minetest.register_chatcommand("/growbnv", {
+	params = "",
+	description = "Load a binvox file and place it in the minetest world",
+	func = function(name, param)
+		voxManip = minetest.get_voxel_manip()
+		readBinvox()
 		voxManip = nil
 	end,
 })
@@ -106,7 +137,7 @@ function checkSurround(pos)
 			for dz=-1,1 do
 				local p = {x=pos.x+dx, y=pos.y+dy, z=pos.z+dz}
 				voxManip:read_from_map(p, p)
-				if (minetest.get_node(p).name == growwallNodeMarker) then
+				if (minetest.get_node(p).name == markerNodeType) then
 --					local p1 = {x=pos.x+dx, y=pos.y+1, z=pos.z+dz}
 --					voxManip:read_from_map(p1, p1)
 --					if (minetest.get_node(p1).name == "air") then
@@ -123,13 +154,13 @@ end
 
 function growblock(pos)
 	print(pos.x..",".. pos.y..",".. pos.z)
-	for dy=0,growwallMaxHeight do
+	for dy=0,wallMaxHeight do
 		local p = {x=pos.x, y=math.floor(pos.y+dy), z=pos.z}
 		voxManip:read_from_map(p, p)
 
 		-- place only replaces air and water
-		--minetest.place_node(p, {name=growwallNodeTarget})
-		minetest.set_node(p, {name=growwallNodeTarget})
+		--minetest.place_node(p, {name=outputNodeType})
+		minetest.set_node(p, {name=outputNodeType})
 	end
 end
 
@@ -252,23 +283,14 @@ function DrawBitmap(bytecode)
 			local wallHeight = math.floor((255 - r)/10)	-- use r channel of RGB for wall height
 			if wallHeight>0 then
 				if (nodeCount % 1000) == 0 then
-					minetest.chat_send_all("placed ".. nodeCount.. " pixels")
+					minetest.chat_send_all("placed ".. nodeCount.. " pixels/nodes")
 				end
 				nodeCount = nodeCount+1
 				for height = 0, wallHeight do
-					local p = {x=x, y=height, z=y}
+					local p = {x=((x*importScale)+importOffsetX), y=((height*importScale)+importOffsetY), z=((y*importScale)+importOffsetZ)}
 					voxManip:read_from_map(p, p)
 
---					print((x).. ", 0, ".. (y).. ": ".. (wallHeight))
---					print(p.x.. ": ".. p.y.. ": ".. p.z.. ": ".. height)
-					-- moving the player around might solves the problem with sections missing if blocks have not been generated, but is quite slow
---					player:setpos(p)
-					--if you only want certain blocks replaced then use this conditional:-
-	--				local n = minetest.get_node(p).name
-	--				if (n == "air") then
-					-- place only replaces air and water
-	--				minetest.place_node(p, {name=growwallNodeTarget})
-					minetest.set_node(p, {name=growwallNodeTarget})
+					minetest.set_node(p, {name=outputNodeType})
 	--				end
 				end
 			end
@@ -278,5 +300,133 @@ function DrawBitmap(bytecode)
 end
 
 
+-- Process a binvox file, and create nodes
+-- chatcommand("/growbnv"
+function readBinvox()
 
+--	local voxels
+	local dimX, dimY, dimZ = 0,0,0
+	local size
+	local tx, ty, tz
+	local scale
+
+	local binvoxFileName="/home/david/.minetest/mods/binvox/Hogwarts.binvox"
+	
+	io.input(io.open(binvoxFileName, "rb"))
+
+
+	--
+	-- read header
+	--
+	line = io.read("*line")
+        if line:find("#binvox") == nil then
+		minetest.chat_send_all("Error: first line reads [".. line.. "] instead of [#binvox]")
+		return false;
+	end
+	print(line)
+
+--	version_string = line.substring(8);
+--	version = Integer.parseInt(version_string);
+--	print("reading binvox version " + version);
+
+	local done = false
+	while (done==false) do
+
+		line = io.read("*line")
+		print(line)
+
+	        if line:find("data") ~= nil then
+			done = true;
+		else
+		        if line:find("dim") ~= nil then
+--				local dimensions = {}
+--				for dimension in line:gmatch("%S+") do table.insert(dimensions, dimension) end
+				dimX = 256	--tonumber(dimensions[1])
+				dimY = 256	--tonumber(dimensions[2])
+				dimZ = 256	--tonumber(dimensions[3])
+				print("binvox dimensions: X:".. tostring(dimX).. ", Y:".. tostring(dimY).. ", Z:".. tostring(dimZ));
+				minetest.chat_send_all("binvox dimensions: X:".. tostring(dimX).. ", Y:".. tostring(dimY).. ", Z:".. tostring(dimZ));
+			else
+			        if line:find("translate") ~= nil then
+					-- tx = binvox_data.read(2);
+					-- ty = binvox_data.read(2);
+					-- tz = binvox_data.read(2);
+				else
+				        if line:find("scale") ~= nil then
+						-- scale = binvox_data.read(2);
+					else
+						minetest.chat_send_all("  unrecognized keyword [".. line.. "], skipping");
+					end
+				end
+			end
+		end
+	end  -- while
+
+	if (done == false) then
+		minetest.chat_send_all("binvox: error reading header");
+		return false;
+	end
+	if (dimX == 0) then
+		minetest.chat_send_all("binvox: missing dimensions in header");
+		return false;
+	end
+
+	local size = dimX * dimY * dimZ
+--	local voxels[size];
+
+	--
+	-- read voxel data
+	--
+	local value, count, index, end_index, nodeCount, x, y, z, zwpy = 0,0,0,0,0,0,0,0,0
+
+	print("**********")
+	minetest.chat_send_all("Reading binvox data")
+	while (end_index < size) do
+		value=0
+		while (value==0) do
+			print("V:".. tostring(value).. " C:".. tostring(count).. " I:".. tostring(index))
+			index = index + count
+			if (index > size) then 
+				io.close()
+				return false 
+			end
+			value = string.byte(io.read(1))	-- this will be a 1 if voxel is present, else 0/nil if not
+			count = string.byte(io.read(1))	-- this is the number of times value will be repeated along the axis
+			if (count == 0) then 
+				io.close()
+				return false 
+			end
+		end
+
+		x = math.floor(index / (dimY*dimZ))
+		zwpy = index % (dimY*dimZ) 	-- z*w + y
+		z = math.floor(zwpy / dimX)
+		y = zwpy % dimX
+
+		end_index = index + count
+		for i = 0, count do 
+--			voxels[i] = value 
+			print("binvox voxel: X:".. x.. ", Y:".. y.. ", Z:".. z)
+			-- applying no scaling means the entire model will take up a 256x256x256 node cube
+			-- scaling is set in the locals (visible to the entire mod) in the first section
+			local p = {x=((-x*importScale)+importOffsetX), y=((y*importScale)+importOffsetY), z=((z*importScale)+importOffsetZ)}		-- -ve x corrects mirroring from blender obj output - not sure if this is universal
+			voxManip:read_from_map(p, p)
+			minetest.set_node(p, {name=outputNodeType})
+			y = y + 1
+			nodeCount = nodeCount + 1
+			if (nodeCount % 1000) == 0 then
+				minetest.chat_send_all("placed ".. nodeCount.. " nodes/voxels")
+			end
+		end
+
+	end  -- while
+
+	minetest.chat_send_all("Completed placement of ".. nodeCount.. " nodes/voxels")
+	print("  read ".. nodeCount.. " voxels")
+	io.close()
+	return true
+
+end  -- read_binvox
+
+  
 
