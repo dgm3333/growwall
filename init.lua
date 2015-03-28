@@ -6,13 +6,15 @@ local markerNodeType="wool:red"
 local outputNodeType="default:sandstonebrick"
 
 -- Import section
-local importScale=1	-- Recommend leaving this at 1, as at the moment scaling hasn't been properly implemented- all it will do is create gaps between the blocks, and unless they are multiples of 2 the gaps will be relatively irregular
-local importOffsetX=1000
-local importOffsetY=10
+local importScale=1	-- upscaling hasn't been properly implemented- all it will do is create gaps between the blocks, and unless they are multiples of 2 the gaps will be relatively irregular
+local importOffsetX=1500
+local importOffsetY=35
 local importOffsetZ=0
 
 local bitmapFileName="/home/david/.minetest/mods/growwall/hogwarts.bmp"
-local binvoxFileName="/home/david/.minetest/mods/growwall/Hogwarts.binvox"
+local binvoxFileName="/home/david/.minetest/mods/binvox/Hogwarts_hollow_256grid.binvox"
+	
+local binvoxGridSize=256
 
 -- binvox can be downloaded from:-
 -- http://www.cs.princeton.edu/~min/binvox/
@@ -21,7 +23,9 @@ local binvoxFileName="/home/david/.minetest/mods/growwall/Hogwarts.binvox"
 
 -- to import binvox files (ie 3D meshes converted to voxels/nodes which can be directly imported into minetest use the following command line (for linux):-
 --cd '/home/david/.minetest/mods/binvox' 
---./binvox -ri -bi 1 Hogwarts.obj	-- this converts a mesh to voxels, but keeps it hollow
+--./binvox -ri Hogwarts.obj			-- this converts a mesh to voxels using default 256x256x256 grid, and removes internal voxels (ie keeps objects hollow)
+--./binvox -pb -d 2048 -ri Hogwarts.obj		-- this converts a mesh to voxels using use offscreen pbuffer which enables 4096x4096x4096 grid, and keeps it hollow
+
 
 
 
@@ -310,8 +314,6 @@ function readBinvox()
 	local tx, ty, tz
 	local scale
 
-	local binvoxFileName="/home/david/.minetest/mods/binvox/Hogwarts.binvox"
-	
 	io.input(io.open(binvoxFileName, "rb"))
 
 
@@ -319,6 +321,10 @@ function readBinvox()
 	-- read header
 	--
 	line = io.read("*line")
+	if line == nil then 
+		minetest.chat_send_all("Error: File ".. binvoxFileName.. " not found")
+		return false;
+	end
         if line:find("#binvox") == nil then
 		minetest.chat_send_all("Error: first line reads [".. line.. "] instead of [#binvox]")
 		return false;
@@ -341,9 +347,9 @@ function readBinvox()
 		        if line:find("dim") ~= nil then
 --				local dimensions = {}
 --				for dimension in line:gmatch("%S+") do table.insert(dimensions, dimension) end
-				dimX = 256	--tonumber(dimensions[1])
-				dimY = 256	--tonumber(dimensions[2])
-				dimZ = 256	--tonumber(dimensions[3])
+				dimX = binvoxGridSize	--tonumber(dimensions[1])
+				dimY = binvoxGridSize	--tonumber(dimensions[2])
+				dimZ = binvoxGridSize	--tonumber(dimensions[3])
 				print("binvox dimensions: X:".. tostring(dimX).. ", Y:".. tostring(dimY).. ", Z:".. tostring(dimZ));
 				minetest.chat_send_all("binvox dimensions: X:".. tostring(dimX).. ", Y:".. tostring(dimY).. ", Z:".. tostring(dimZ));
 			else
@@ -384,18 +390,23 @@ function readBinvox()
 	while (end_index < size) do
 		value=0
 		while (value==0) do
-			print("V:".. tostring(value).. " C:".. tostring(count).. " I:".. tostring(index))
+--			print("V:".. tostring(value).. " C:".. tostring(count).. " I:".. tostring(index))
 			index = index + count
 			if (index > size) then 
 				io.close()
 				return false 
 			end
-			value = string.byte(io.read(1))	-- this will be a 1 if voxel is present, else 0/nil if not
-			count = string.byte(io.read(1))	-- this is the number of times value will be repeated along the axis
-			if (count == 0) then 
+			value = io.read(1)	-- this will be a 1 if voxel is present, else 0/nil if not
+			count = io.read(1)	-- this is the number of times value will be repeated along the axis
+			if ((value == nil) or (count == nil)) then 
+				minetest.chat_send_all("Completed placement of ".. nodeCount.. " nodes/voxels")
+				minetest.chat_send_all("Explore and consider reimporting if cavegen has punched holes in it")
+				print("growwall binvox imported ".. nodeCount.. " nodes/voxels")
 				io.close()
-				return false 
+				return true
 			end
+			value = string.byte(value)	-- this will be a 1 if voxel is present, else 0/nil if not
+			count = string.byte(count)	-- this is the number of times value will be repeated along the axis
 		end
 
 		x = math.floor(index / (dimY*dimZ))
@@ -422,7 +433,8 @@ function readBinvox()
 	end  -- while
 
 	minetest.chat_send_all("Completed placement of ".. nodeCount.. " nodes/voxels")
-	print("  read ".. nodeCount.. " voxels")
+	minetest.chat_send_all("Explore and consider reimporting if cavegen has punched holes in it")
+	print("growwall binvox imported ".. nodeCount.. " nodes/voxels")
 	io.close()
 	return true
 
